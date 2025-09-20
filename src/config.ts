@@ -1,4 +1,4 @@
-export const apiUrl = new URL("http://ws.audioscrobbler.com/2.0?format=json");
+export const apiUrl = new URL("https://ws.audioscrobbler.com/2.0?format=json");
 
 /**
  * Production
