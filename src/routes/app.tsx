@@ -170,6 +170,16 @@ export default function App() {
 
   return (
     <>
+      <Show when={loading()}>
+        <Window>
+          <div class="loading-container">
+            <h1>
+              Loading<span class="loading-dots"></span>
+            </h1>
+            <p>{loadingStatus()}</p>
+          </div>
+        </Window>
+      </Show>
       <Show when={error()}>
         <Window>
           <div class="error-container">
@@ -239,16 +249,6 @@ export default function App() {
           </div>
         </Window>
       </Show>
-      {loading() && !error() && !success() && (
-        <Window>
-          <div class="loading-container">
-            <h1>
-              Loading<span class="loading-dots"></span>
-            </h1>
-            <p>{loadingStatus()}</p>
-          </div>
-        </Window>
-      )}
     </>
   );
 }
