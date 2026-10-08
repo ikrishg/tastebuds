@@ -1,7 +1,5 @@
 import { Window } from "~/components/Window";
 import { createSignal, onMount, Show } from "solid-js";
-import { apiKey, apiUrl, sharedSecret } from "~/config";
-import md5 from "md5";
 
 export default function Callback() {
   const [loading, setLoading] = createSignal(true);
@@ -24,31 +22,24 @@ export default function Callback() {
       return;
     }
 
-    const getSessionUrl = new URL(apiUrl);
-
-    const parameters = {
-      method: "auth.getSession",
-      api_key: apiKey,
-      token: token,
-    };
-
-    const signature =
-      Object.entries(parameters)
-        .sort((a, b) => {
-          return a[0].localeCompare(b[0]);
-        })
-        .flat()
-        .join("") + sharedSecret;
-
-    Object.entries(parameters).forEach(([key, value]) => {
-      getSessionUrl.searchParams.append(key, value);
-    });
-
-    getSessionUrl.searchParams.append("api_sig", md5(signature));
-
-    fetch(getSessionUrl)
+    fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    })
       .then(async (response) => {
         const data = await response.json();
+
+        if (!response.ok && !data.error) {
+          setLoading(false);
+          setError("Server error - Please try again later");
+          setDebugInfo({
+            status: response.status,
+            fullResponse: data,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
 
         if (data.error) {
           const errorCode = data.error;
@@ -68,7 +59,6 @@ export default function Callback() {
               errorCode,
               errorMessage: data.message || "No error message provided",
               fullResponse: data,
-              requestUrl: getSessionUrl.toString(),
               timestamp: new Date().toISOString(),
             });
           }
