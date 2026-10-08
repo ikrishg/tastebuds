@@ -15,7 +15,7 @@ export async function POST(event: APIEvent) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const token = body.token;
+  const token = body?.token;
   if (!token || typeof token !== "string") {
     return json({ error: "Missing token" }, 400);
   }
