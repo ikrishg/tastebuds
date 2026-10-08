@@ -30,7 +30,7 @@ export default function Callback() {
       .then(async (response) => {
         const data = await response.json();
 
-        if (!response.ok && !data.error) {
+        if (!response.ok && typeof data.error !== "number") {
           setLoading(false);
           setError("Server error - Please try again later");
           setDebugInfo({
