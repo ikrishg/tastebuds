@@ -69,8 +69,9 @@ export const migrateLegacyCache = () => {
   if (entry && !localStorage.getItem(cacheKey(DEFAULT_RANGE))) {
     if (!tryWrite(cacheKey(DEFAULT_RANGE), JSON.stringify(entry))) return; // keep the old copy, retry next load
   }
-  if (entry) addHistory(DEFAULT_RANGE, entry);
+  // Free the legacy keys first so the history write has their space to use.
   for (const k of LEGACY_KEYS) localStorage.removeItem(k);
+  if (entry) addHistory(DEFAULT_RANGE, entry);
 };
 
 export const getCachedAnalysis = (range: RangeId): CachedAnalysis | null => {
