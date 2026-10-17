@@ -5,7 +5,6 @@ import { fetchAllMusicData, type LastFmArtist, type LastFmTrack } from "~/lib/ap
 import { formatTime, handleAuthError, isAuthError } from "~/lib/utils";
 import { DEFAULT_RANGE, isRangeId, RANGES, rangeLabel, type RangeId } from "~/lib/ranges";
 import {
-  clearAnalysis,
   COOLDOWN_MS,
   getCachedAnalysis,
   getHistory,
@@ -15,6 +14,15 @@ import {
 } from "~/lib/storage";
 
 const RANGE_KEY = "tb:range";
+
+/** Remembering the range is a nicety: a full storage must never block showing results. */
+const rememberRange = (r: RangeId) => {
+  try {
+    rememberRange(r);
+  } catch {
+    // ignore
+  }
+};
 
 interface Snapshot {
   range: RangeId;
@@ -57,7 +65,7 @@ export default function App() {
 
   const display = (snap: Snapshot) => {
     setRange(snap.range);
-    localStorage.setItem(RANGE_KEY, snap.range);
+    rememberRange(snap.range);
     setMusicVibe(snap.vibe);
     setVibeError(snap.vibeError);
     setTopSongs(snap.topSongs);
@@ -117,12 +125,19 @@ export default function App() {
         vibe = await requestVibe(musicData, r);
       } catch (aiError) {
         if (id !== requestId) return;
+        const message = aiError instanceof Error ? aiError.message : String(aiError);
+        if (lastShown?.vibe) {
+          // Keep the vibe the user was looking at and say why the new one failed.
+          display(lastShown);
+          setNotice(`Couldn't generate a vibe for ${rangeLabel(r).toLowerCase()}: ${message}`);
+          return;
+        }
         // Keep the lists on screen and say exactly why the vibe is missing.
         // Nothing is cached, so the user can retry right away.
         display({
           range: r,
           vibe: "",
-          vibeError: aiError instanceof Error ? aiError.message : String(aiError),
+          vibeError: message,
           topSongs: songs,
           topArtists: artists,
           generatedAt: null,
@@ -165,12 +180,12 @@ export default function App() {
     if (r === range() && !error()) return;
     if (success()) lastShown = snapshot();
     setRange(r);
-    localStorage.setItem(RANGE_KEY, r);
+    rememberRange(r);
     show(r);
   };
 
   const handleRegenerate = () => {
-    clearAnalysis(range());
+    // The cached result stays until a new one is saved, so a failed regenerate loses nothing.
     void generate(range());
   };
 
