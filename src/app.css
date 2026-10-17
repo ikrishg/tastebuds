@@ -643,3 +643,24 @@ body {
 .compare-shared {
   padding-left: 1.25rem;
 }
+
+.share-card {
+  margin-top: 1.5rem;
+}
+
+.share-preview {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  border: 2px solid currentColor;
+}
+
+.share-card a.button {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.share-status {
+  word-break: break-all;
+}

@@ -1,5 +1,6 @@
 import { Window } from "~/components/Window";
 import { Compare } from "~/components/Compare";
+import { ShareCard } from "~/components/ShareCard";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { requestVibe } from "~/lib/ai";
 import { fetchAllMusicData, type LastFmArtist, type LastFmTrack } from "~/lib/api";
@@ -307,6 +308,15 @@ export default function App() {
               {regenerateText()}
             </button>
           </div>
+
+          <Show when={!vibeError() && musicVibe()}>
+            <ShareCard
+              user={localStorage.getItem("username") || ""}
+              vibe={musicVibe()}
+              range={range()}
+              songs={topSongs().slice(0, 5).map((s) => `${s.name} by ${songArtist(s)}`)}
+            />
+          </Show>
 
           <Compare range={range()} />
 

@@ -1,11 +1,13 @@
 {
   "name": "example-with-tailwindcss",
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^0.16.0",
     "@solidjs/start": "^1.1.0",
     "gsap": "^3.13.0",
     "md5": "^2.3.0",
+    "satori": "^0.62.0",
     "solid-js": "^1.9.5",
     "vinxi": "^0.5.7"
   },
