@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, on, Show } from "solid-js";
 import type { RangeId } from "~/lib/ranges";
 import { toShareParams } from "~/lib/share";
 
@@ -6,6 +6,8 @@ export function ShareCard(props: { user: string; vibe: string; range: RangeId; s
   const [status, setStatus] = createSignal<string | null>(null);
   const params = () =>
     toShareParams({ user: props.user, vibe: props.vibe, range: props.range, songs: props.songs }).toString();
+  // A status message (including the fallback link) belongs to one result: clear it when the result changes.
+  createEffect(on(params, () => setStatus(null), { defer: true }));
   const shareUrl = () => `${location.origin}/s?${params()}`;
   const imageUrl = () => `/api/card?${params()}`;
 
