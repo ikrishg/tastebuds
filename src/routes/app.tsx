@@ -16,6 +16,7 @@ export default function App() {
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal(false);
   const [musicVibe, setMusicVibe] = createSignal<string>("");
+  const [vibeError, setVibeError] = createSignal<string | null>(null);
   const [topSongs, setTopSongs] = createSignal<LastFmTrack[]>([]);
   const [topArtists, setTopArtists] = createSignal<LastFmArtist[]>([]);
   const [regenerateDisabled, setRegenerateDisabled] = createSignal(true);
@@ -86,7 +87,19 @@ export default function App() {
           setTopArtists(artists);
 
           setLoadingStatus("AI is analyzing your music vibe...");
-          const musicVibeResult = await requestVibe(musicData);
+          let musicVibeResult: string;
+          try {
+            musicVibeResult = await requestVibe(musicData);
+          } catch (aiError) {
+            // Keep the lists on screen and say exactly why the vibe is missing.
+            // Nothing is cached, so the user can retry right away.
+            setVibeError(aiError instanceof Error ? aiError.message : String(aiError));
+            setLoading(false);
+            setSuccess(true);
+            setRegenerateDisabled(false);
+            setRegenerateText("🔄 Try again");
+            return;
+          }
 
           setLoadingStatus("Saving your analysis...");
           setCachedData(musicVibeResult, songs, artists);
@@ -188,7 +201,16 @@ export default function App() {
           <div class="music-analysis">
             <div class="vibe-section">
               <h2>🎵 Your Vibe</h2>
-              <p class="music-vibe-text">{musicVibe()}</p>
+              <Show
+                when={!vibeError()}
+                fallback={
+                  <p class="music-vibe-text vibe-error">
+                    Couldn't generate your vibe: {vibeError()}
+                  </p>
+                }
+              >
+                <p class="music-vibe-text">{musicVibe()}</p>
+              </Show>
             </div>
 
             <div class="music-lists">
