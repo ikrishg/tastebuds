@@ -1,6 +1,6 @@
 import { Window } from "~/components/Window";
 import { createSignal, onMount, Show } from "solid-js";
-import { callAI, generateMusicVibePrompt } from "~/lib/ai";
+import { requestVibe } from "~/lib/ai";
 import { fetchAllMusicData, LastFmTrack, LastFmArtist } from "~/lib/api";
 import {
   formatTime,
@@ -85,19 +85,8 @@ export default function App() {
           setTopSongs(songs);
           setTopArtists(artists);
 
-          setLoadingStatus("Processing your music data...");
-          const vibePrompt = generateMusicVibePrompt(musicData);
-
-          let musicVibeResult =
-            "Your music taste is as mysterious as a hidden track. - Rating: 7/10";
-
           setLoadingStatus("AI is analyzing your music vibe...");
-          const vibeResult = await callAI([
-            { role: "user", content: vibePrompt },
-          ]);
-          if (vibeResult) {
-            musicVibeResult = vibeResult;
-          }
+          const musicVibeResult = await requestVibe(musicData);
 
           setLoadingStatus("Saving your analysis...");
           setCachedData(musicVibeResult, songs, artists);

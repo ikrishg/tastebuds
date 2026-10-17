@@ -1,38 +1,20 @@
-export interface ChatMessage {
-  role: string;
-  content: string;
-}
-
-export interface AIResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-}
-
-export const callAI = async (
-  messages: ChatMessage[]
-): Promise<string | null> => {
+/** Ask the server for a vibe. Throws with the server's message when the AI fails. */
+export const requestVibe = async (musicData: string[]): Promise<string> => {
+  let response: Response;
   try {
-    const response = await fetch("https://ai.hackclub.com/chat/completions", {
+    response = await fetch("/api/vibe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ musicData }),
     });
-
-    if (response.ok) {
-      const data: AIResponse = await response.json();
-      return (
-        data.choices?.[0]?.message?.content?.split("</think>").pop()?.trim() ||
-        null
-      );
-    }
-    return null;
-  } catch (error) {
-    console.error("AI API Error:", error);
-    return null;
+  } catch {
+    throw new Error("Couldn't reach the Tastebuds server to generate your vibe.");
   }
+  const data = (await response.json().catch(() => ({}))) as { vibe?: string; error?: string };
+  if (!response.ok || !data.vibe) {
+    throw new Error(data.error || `Vibe generation failed (HTTP ${response.status}).`);
+  }
+  return data.vibe;
 };
 
 export const generateMusicVibePrompt = (musicData: string[]): string => {
