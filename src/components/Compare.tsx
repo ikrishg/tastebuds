@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import {
   compareTastes,
   fetchTaste,
@@ -20,6 +20,21 @@ export function Compare(props: { range: RangeId }) {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [result, setResult] = createSignal<Result | null>(null);
+  let requestId = 0;
+
+  // A comparison belongs to one range: clear it and drop any pending request when the range changes.
+  createEffect(
+    on(
+      () => props.range,
+      () => {
+        requestId++;
+        setResult(null);
+        setError(null);
+        setBusy(false);
+      },
+      { defer: true },
+    ),
+  );
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -36,6 +51,8 @@ export function Compare(props: { range: RangeId }) {
     }
 
     const range = props.range;
+    const id = ++requestId;
+    const current = () => id === requestId;
     setBusy(true);
     setResult(null);
     try {
@@ -50,6 +67,10 @@ export function Compare(props: { range: RangeId }) {
         throw new Error(`${name} has no scrobbles for ${rangeLabel(range).toLowerCase()}.`);
       }
       const mine = await fetchTaste(me, range);
+      if (mine.artists.length === 0) {
+        throw new Error(`You have no scrobbles for ${rangeLabel(range).toLowerCase()}.`);
+      }
+      if (!current()) return;
       const compat = compareTastes(mine, theirs);
       const base: Result = { ...compat, friend: name, range, line: null, lineError: null };
       setResult(base);
@@ -65,14 +86,14 @@ export function Compare(props: { range: RangeId }) {
           myTopArtists: mine.artists.slice(0, 10),
           friendTopArtists: theirs.artists.slice(0, 10),
         });
-        setResult({ ...base, line });
+        if (current()) setResult({ ...base, line });
       } catch (err) {
-        setResult({ ...base, lineError: err instanceof Error ? err.message : String(err) });
+        if (current()) setResult({ ...base, lineError: err instanceof Error ? err.message : String(err) });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (current()) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
 
@@ -97,36 +118,40 @@ export function Compare(props: { range: RangeId }) {
           {busy() ? "Comparing..." : "Compare"}
         </button>
       </form>
-      <Show when={error()}>
-        <p class="compare-error">{error()}</p>
-      </Show>
-      <Show when={result()}>
-        {(r) => (
-          <div class="compare-result">
-            <p class="compare-score">
-              You and {r().friend}: <strong>{r().score}/100</strong> ({rangeLabel(r().range)})
-            </p>
-            <Show when={r().line}>
-              <p class="compare-line">{r().line}</p>
-            </Show>
-            <Show when={r().lineError}>
-              <p class="compare-error">Couldn't write your compatibility line: {r().lineError}</p>
-            </Show>
-            <Show when={!r().line && !r().lineError}>
-              <p class="compare-line">Writing your compatibility line...</p>
-            </Show>
-            <Show
-              when={r().sharedArtists.length > 0}
-              fallback={<p>No shared top artists. Opposites attract?</p>}
-            >
-              <p>Shared artists:</p>
-              <ul class="compare-shared">
-                <For each={r().sharedArtists.slice(0, 5)}>{(a) => <li>{a}</li>}</For>
-              </ul>
-            </Show>
-          </div>
-        )}
-      </Show>
+      <div role="alert">
+        <Show when={error()}>
+          <p class="compare-error">{error()}</p>
+        </Show>
+      </div>
+      <div role="status" aria-live="polite">
+        <Show when={busy() && !result()}>
+          <p class="compare-line">Comparing your tastes...</p>
+        </Show>
+        <Show when={result()}>
+          {(r) => (
+            <div class="compare-result">
+              <p class="compare-score">
+                You and {r().friend}: <strong>{r().score}/100</strong> ({rangeLabel(r().range)})
+              </p>
+              <Show when={r().line}>
+                <p class="compare-line">{r().line}</p>
+              </Show>
+              <Show when={r().lineError}>
+                <p class="compare-error">Couldn't write your compatibility line: {r().lineError}</p>
+              </Show>
+              <Show when={!r().line && !r().lineError}>
+                <p class="compare-line">Writing your compatibility line...</p>
+              </Show>
+              <Show when={r().sharedArtists.length > 0} fallback={<p>No shared top artists. Opposites attract?</p>}>
+                <p>Shared artists:</p>
+                <ul class="compare-shared">
+                  <For each={r().sharedArtists.slice(0, 5)}>{(a) => <li>{a}</li>}</For>
+                </ul>
+              </Show>
+            </div>
+          )}
+        </Show>
+      </div>
     </section>
   );
 }
