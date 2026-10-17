@@ -612,3 +612,34 @@ body {
 .range-notice {
   opacity: 0.85;
 }
+
+.compare {
+  margin-top: 1.5rem;
+}
+
+.compare-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.compare-input {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
+.compare-score {
+  font-size: 1.1em;
+}
+
+.compare-error {
+  opacity: 0.8;
+}
+
+.compare-shared {
+  padding-left: 1.25rem;
+}
