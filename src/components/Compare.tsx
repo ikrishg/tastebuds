@@ -64,7 +64,7 @@ export function Compare(props: { range: RangeId }) {
         theirs = await fetchTaste(name, range);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(/not found/i.test(msg) ? `No Last.fm user called "${name}".` : msg);
+        throw new Error(/not found|HTTP 404/i.test(msg) ? `No Last.fm user called "${name}".` : msg);
       }
       if (theirs.artists.length === 0) {
         throw new Error(`${name} has no scrobbles for ${rangeLabel(range).toLowerCase()}.`);
