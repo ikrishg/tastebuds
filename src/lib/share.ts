@@ -14,7 +14,12 @@ const MAX_SONG = 90;
 const MAX_SONGS = 5;
 const SEP = "\n";
 
-const clean = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+// Limits count whole code points, so an emoji at the cut-off is never split in half.
+const clean = (s: string, max: number) =>
+  Array.from(s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim())
+    .slice(0, max)
+    .join("")
+    .trim();
 
 export const toShareParams = (d: ShareData): URLSearchParams => {
   const p = new URLSearchParams();

@@ -38,7 +38,7 @@ async function loadEmoji(segment: string): Promise<string | undefined> {
   } catch {
     svg = undefined;
   }
-  emojiCache.set(code, svg);
+  if (svg !== undefined) emojiCache.set(code, svg); // only cache hits, so a CDN blip can recover
   return svg;
 }
 
