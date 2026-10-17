@@ -1,6 +1,7 @@
 import type { APIEvent } from "@solidjs/start/server";
 import { generateMusicVibePrompt } from "~/lib/ai";
 import { AIUnavailableError, complete } from "~/server/ai";
+import { guardAIRequest } from "~/server/guard";
 
 const MAX_LINES = 120;
 const MAX_LINE_LENGTH = 400;
@@ -18,6 +19,10 @@ export async function POST(event: APIEvent) {
     return json({ error: "musicData must be a non-empty array of strings" }, 400);
   }
   const musicData = (lines as string[]).slice(0, MAX_LINES).map((l) => l.slice(0, MAX_LINE_LENGTH));
+
+  // Only valid requests count against the limit, and the check runs before any quota is spent.
+  const refused = guardAIRequest(event.request);
+  if (refused) return refused;
 
   try {
     const { text, model } = await complete([{ role: "user", content: generateMusicVibePrompt(musicData) }]);
