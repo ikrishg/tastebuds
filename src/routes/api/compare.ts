@@ -1,5 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 import { AIUnavailableError, complete } from "~/server/ai";
+import { guardAIRequest } from "~/server/guard";
 import { isRangeId, rangeLabel } from "~/lib/ranges";
 
 const MAX_ITEMS = 20;
@@ -11,12 +12,16 @@ const strings = (v: unknown): string[] | null =>
     : null;
 
 export async function POST(event: APIEvent) {
-  let body: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    body = await event.request.json();
+    parsed = await event.request.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return json({ error: "JSON body must be an object" }, 400);
+  }
+  const body = parsed as Record<string, unknown>;
 
   const me = typeof body.me === "string" ? body.me.slice(0, 32) : "";
   const friend = typeof body.friend === "string" ? body.friend.slice(0, 32) : "";
@@ -35,6 +40,10 @@ export async function POST(event: APIEvent) {
   if (!sharedArtists || !sharedTracks || !myTopArtists || !friendTopArtists) {
     return json({ error: "artist and track lists must be arrays of strings" }, 400);
   }
+
+  // Only valid requests count against the limit, and the check runs before any quota is spent.
+  const refused = guardAIRequest(event.request);
+  if (refused) return refused;
 
   const prompt = `Two Last.fm users are comparing music taste over ${rangeLabel(range).toLowerCase()}.
 Compatibility score: ${Math.round(score)}/100.
