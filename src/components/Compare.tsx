@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import {
   compareTastes,
   fetchTaste,
@@ -21,6 +21,9 @@ export function Compare(props: { range: RangeId }) {
   const [error, setError] = createSignal<string | null>(null);
   const [result, setResult] = createSignal<Result | null>(null);
   let requestId = 0;
+
+  // Leaving the page invalidates pending work, so an abandoned comparison never reaches the AI.
+  onCleanup(() => requestId++);
 
   // A comparison belongs to one range: clear it and drop any pending request when the range changes.
   createEffect(
