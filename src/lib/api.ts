@@ -58,11 +58,15 @@ export const fetchLastFmData = async <T extends LastFmMethod>(
 
   try {
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // Last.fm sends its error as JSON even on 4xx (for example 404 {"error":6,"message":"User not found"}),
+    // so read the body before falling back to the bare HTTP status.
+    const data = await response.json().catch(() => null);
+    if (!response.ok && !data?.error) {
+      throw new Error(`Last.fm returned HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`);
     }
-
-    const data = await response.json();
+    if (!data) {
+      throw new Error("Last.fm sent a response Tastebuds couldn't read. Try again in a moment.");
+    }
 
     if (data.error) {
       throw new Error(`Last.fm API error: ${data.message || data.error}`);
