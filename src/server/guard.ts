@@ -1,7 +1,10 @@
 // Server-only guard for the AI routes, which spend the shared HACKCLUB_AI_API_KEY quota.
 //
-// 1. Same-origin check: browsers always send Origin on cross-site POSTs, so this blocks other
-//    sites from using the endpoint from their pages. Scripts can fake Origin, hence step 2.
+// 1. Same-origin check: browsers always send Origin on cross-site POSTs. The Origin must be the
+//    host this request was sent to (so every production, preview and local URL of this exact
+//    deployment works and nothing else does) or the production domain. The body must also be
+//    sent as application/json, which forces a CORS preflight that other sites can't pass.
+//    Scripts can fake Origin, hence step 2.
 // 2. Per-IP fixed-window limit kept in memory. On Vercel each warm instance has its own memory,
 //    so this is best effort. A shared store (for example Vercel KV) would make it exact, but
 //    that is a new resource and is left for Krish to decide on.
@@ -14,11 +17,13 @@ const MAX_TRACKED = 5000;
 const hits = new Map<string, { count: number; start: number }>();
 let global = { count: 0, start: Date.now() };
 
-const allowedHost = (host: string): boolean =>
-  host === "tastebuds.krishg.com" ||
-  host.endsWith(".vercel.app") ||
-  host === "localhost" ||
-  host === "127.0.0.1";
+const PRODUCTION_HOST = "tastebuds.krishg.com";
+
+function requestHost(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-host")?.split(",")[0].trim();
+  const raw = forwarded || req.headers.get("host") || new URL(req.url).host;
+  return raw.replace(/:\d+$/, "").toLowerCase();
+}
 
 function clientIp(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");
@@ -27,15 +32,21 @@ function clientIp(req: Request): string {
 
 /** Returns a Response to send back when the request should be refused, otherwise null. */
 export function guardAIRequest(req: Request): Response | null {
+  const type = req.headers.get("content-type") || "";
+  if (!type.toLowerCase().startsWith("application/json")) {
+    return refuse(415, "Send the request body as application/json.");
+  }
   const origin = req.headers.get("origin");
   if (origin) {
     let host = "";
     try {
-      host = new URL(origin).hostname;
+      host = new URL(origin).hostname.toLowerCase();
     } catch {
       host = "";
     }
-    if (!allowedHost(host)) return refuse(403, "Requests must come from the Tastebuds site.");
+    if (host !== requestHost(req) && host !== PRODUCTION_HOST) {
+      return refuse(403, "Requests must come from the Tastebuds site.");
+    }
   }
 
   const now = Date.now();
