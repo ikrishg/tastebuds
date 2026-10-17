@@ -34,27 +34,43 @@ const readJSON = <T>(key: string): T | null => {
   }
 };
 
-/** Move the pre-range cache (7 days only) into the 7-day slot once. */
-const migrateLegacyCache = () => {
+const LEGACY_KEYS = ["music_vibe", "top_songs", "top_artists", "last_generated"];
+
+/** Try a localStorage write. Returns false instead of throwing (for example when storage is full). */
+const tryWrite = (key: string, value: string): boolean => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Move the pre-range cache (7 days only) into the 7-day slot once. The old keys are removed only
+ * after the copy is saved, or when they are unreadable, so a full storage never loses the old vibe.
+ */
+export const migrateLegacyCache = () => {
+  if (!LEGACY_KEYS.some((k) => localStorage.getItem(k) !== null)) return;
   const vibe = localStorage.getItem("music_vibe");
   const songs = localStorage.getItem("top_songs");
   const artists = localStorage.getItem("top_artists");
   const at = Number(localStorage.getItem("last_generated"));
-  if (vibe && songs && artists && at && !localStorage.getItem(cacheKey(DEFAULT_RANGE))) {
+
+  let entry: CachedAnalysis | null = null;
+  if (vibe && songs && artists && at) {
     try {
-      const entry: CachedAnalysis = {
-        vibe,
-        topSongs: JSON.parse(songs),
-        topArtists: JSON.parse(artists),
-        generatedAt: at,
-      };
-      localStorage.setItem(cacheKey(DEFAULT_RANGE), JSON.stringify(entry));
-      addHistory(DEFAULT_RANGE, entry);
+      entry = { vibe, topSongs: JSON.parse(songs), topArtists: JSON.parse(artists), generatedAt: at };
     } catch {
-      // unreadable legacy data is simply dropped
+      entry = null;
     }
   }
-  for (const k of ["music_vibe", "top_songs", "top_artists", "last_generated"]) localStorage.removeItem(k);
+
+  if (entry && !localStorage.getItem(cacheKey(DEFAULT_RANGE))) {
+    if (!tryWrite(cacheKey(DEFAULT_RANGE), JSON.stringify(entry))) return; // keep the old copy, retry next load
+  }
+  if (entry) addHistory(DEFAULT_RANGE, entry);
+  for (const k of LEGACY_KEYS) localStorage.removeItem(k);
 };
 
 export const getCachedAnalysis = (range: RangeId): CachedAnalysis | null => {
@@ -66,10 +82,11 @@ export const getCachedAnalysis = (range: RangeId): CachedAnalysis | null => {
   return entry;
 };
 
-export const saveAnalysis = (range: RangeId, entry: CachedAnalysis) => {
-  localStorage.setItem(cacheKey(range), JSON.stringify(entry));
-  addHistory(range, entry);
-};
+/** Save a result and add it to history. Never throws; reports which writes worked. */
+export const saveAnalysis = (range: RangeId, entry: CachedAnalysis): { cached: boolean; history: boolean } => ({
+  cached: tryWrite(cacheKey(range), JSON.stringify(entry)),
+  history: addHistory(range, entry),
+});
 
 export const clearAnalysis = (range: RangeId) => localStorage.removeItem(cacheKey(range));
 
@@ -84,7 +101,7 @@ export const getHistory = (): HistoryEntry[] => {
 const artistName = (song: LastFmTrack): string =>
   typeof song.artist === "string" ? song.artist : song.artist?.name || song.artist?.["#text"] || "";
 
-const addHistory = (range: RangeId, entry: CachedAnalysis) => {
+const addHistory = (range: RangeId, entry: CachedAnalysis): boolean => {
   const list = getHistory().filter((h) => !(h.range === range && h.generatedAt === entry.generatedAt));
   list.unshift({
     vibe: entry.vibe,
@@ -93,7 +110,11 @@ const addHistory = (range: RangeId, entry: CachedAnalysis) => {
     topSongs: entry.topSongs.slice(0, 5).map((s) => `${s.name}${artistName(s) ? ` by ${artistName(s)}` : ""}`),
     topArtists: entry.topArtists.slice(0, 5).map((a) => a.name),
   });
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_LIMIT)));
+  // If storage is full, drop the oldest entries until it fits.
+  for (let n = Math.min(list.length, HISTORY_LIMIT); n > 0; n = Math.floor(n / 2)) {
+    if (tryWrite(HISTORY_KEY, JSON.stringify(list.slice(0, n)))) return true;
+  }
+  return false;
 };
 
 export const clearAllForUser = () => {
