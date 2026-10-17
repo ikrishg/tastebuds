@@ -30,7 +30,7 @@ type MethodResponseMap = {
   "user.getTopTracks": TopTracksResponse;
 };
 
-const fetchLastFmData = async <T extends LastFmMethod>(
+export const fetchLastFmData = async <T extends LastFmMethod>(
   method: T,
   params: Record<string, string> = {},
   limit = 10

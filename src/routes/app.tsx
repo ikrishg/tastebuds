@@ -1,4 +1,5 @@
 import { Window } from "~/components/Window";
+import { Compare } from "~/components/Compare";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { requestVibe } from "~/lib/ai";
 import { fetchAllMusicData, type LastFmArtist, type LastFmTrack } from "~/lib/api";
@@ -306,6 +307,8 @@ export default function App() {
               {regenerateText()}
             </button>
           </div>
+
+          <Compare range={range()} />
 
           <Show when={history().length > 0}>
             <section class="vibe-history">
