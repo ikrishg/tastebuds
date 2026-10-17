@@ -10,7 +10,10 @@ export async function GET(event: APIEvent) {
   const data = fromShareParams(url.searchParams);
   if (!data) return Response.redirect(`${SITE}/`, 302);
 
-  const origin = url.host.endsWith("krishg.com") || url.host.startsWith("localhost") ? url.origin : SITE;
+  // Use the deployment serving this request, so previews show their own card and production uses its domain.
+  const host = event.request.headers.get("x-forwarded-host")?.split(",")[0].trim() || url.host;
+  const proto = event.request.headers.get("x-forwarded-proto")?.split(",")[0].trim() || url.protocol.replace(":", "");
+  const origin = host ? `${proto}://${host}` : SITE;
   const params = toShareParams(data).toString();
   const pageUrl = `${origin}/s?${params}`;
   const imageUrl = `${origin}/api/card?${params}`;

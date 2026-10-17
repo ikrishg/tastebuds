@@ -13,7 +13,8 @@ const h = (type: string, style: Record<string, unknown>, ...children: (Node | st
 });
 
 // Vite inlines the fonts as data URLs, so the bundle needs no file access at runtime.
-const fromDataUrl = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0)).buffer;
+const fromDataUrl = (url: string) =>
+  Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0)).buffer;
 
 const fonts = [
   { name: "Pixel", data: fromDataUrl(pixelFont), weight: 400 as const, style: "normal" as const },
@@ -42,7 +43,9 @@ async function loadEmoji(segment: string): Promise<string | undefined> {
   return svg;
 }
 
-export async function renderCard(d: ShareData): Promise<Uint8Array> {
+/** Renders the card. `complete` is false when an emoji couldn't be fetched and was left out. */
+export async function renderCard(d: ShareData): Promise<{ png: Uint8Array; complete: boolean }> {
+  let complete = true;
   const songs = d.songs.length ? d.songs : ["No top songs yet"];
   const tree = h(
     "div",
@@ -74,9 +77,15 @@ export async function renderCard(d: ShareData): Promise<Uint8Array> {
       "div",
       { display: "flex", flexDirection: "column", fontSize: 24, lineHeight: 1.3, opacity: 0.95 },
       h("div", { fontSize: 22, opacity: 0.75, marginBottom: 8 }, "TOP 5"),
-      ...songs.slice(0, 5).map((s, i) =>
-        h("div", { display: "flex", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: 1072 }, `${i + 1}. ${s}`),
-      ),
+      ...songs
+        .slice(0, 5)
+        .map((s, i) =>
+          h(
+            "div",
+            { display: "flex", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: 1072 },
+            `${i + 1}. ${s}`,
+          ),
+        ),
     ),
   );
 
@@ -85,7 +94,7 @@ export async function renderCard(d: ShareData): Promise<Uint8Array> {
     height: 630,
     fonts,
     loadAdditionalAsset: async (code, segment) =>
-      (code === "emoji" ? await loadEmoji(segment) : undefined) as string,
+      (code === "emoji" ? ((await loadEmoji(segment)) ?? ((complete = false), undefined)) : undefined) as string,
   });
-  return new Resvg(svg, { fitTo: { mode: "width", value: 1200 } }).render().asPng();
+  return { png: new Resvg(svg, { fitTo: { mode: "width", value: 1200 } }).render().asPng(), complete };
 }
