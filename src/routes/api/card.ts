@@ -10,12 +10,13 @@ export async function GET(event: APIEvent) {
     return new Response("Missing u (user) or v (vibe)", { status: 400, headers: { "Content-Type": "text/plain" } });
   }
   try {
-    const png = await renderCard(data);
+    const { png, complete } = await renderCard(data);
     return new Response(new Uint8Array(png), {
       headers: {
         "Content-Type": "image/png",
-        // The image is a pure function of the query string.
-        "Cache-Control": "public, max-age=86400, s-maxage=31536000, immutable",
+        // A complete card is a pure function of the query string. One missing an emoji (CDN
+        // outage) is cached briefly so the next request can render it properly.
+        "Cache-Control": complete ? "public, max-age=86400, s-maxage=31536000, immutable" : "public, max-age=60, s-maxage=60",
         ...(url.searchParams.get("download") === "1"
           ? { "Content-Disposition": `attachment; filename="tastebuds-${data.user.replace(/[^\w-]/g, "")}.png"` }
           : {}),
