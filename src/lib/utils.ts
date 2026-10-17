@@ -6,6 +6,7 @@ export const formatTime = (ms: number): string => {
 
 export const handleAuthError = (): void => {
   localStorage.removeItem("username");
+  for (const k of Object.keys(localStorage)) if (k.startsWith("tb:")) localStorage.removeItem(k);
   location.href = "/";
 };
 
@@ -17,31 +18,3 @@ export const isAuthError = (errorMessage: string): boolean => {
   );
 };
 
-export const getCachedData = () => {
-  return {
-    vibe: localStorage.getItem("music_vibe"),
-    topSongs: localStorage.getItem("top_songs"),
-    topArtists: localStorage.getItem("top_artists"),
-    lastGenerated: localStorage.getItem("last_generated"),
-  };
-};
-
-export const setCachedData = (
-  vibe: string,
-  topSongs: any[],
-  topArtists: any[]
-) => {
-  const now = new Date().getTime();
-  localStorage.setItem("music_vibe", vibe);
-  localStorage.setItem("top_songs", JSON.stringify(topSongs));
-  localStorage.setItem("top_artists", JSON.stringify(topArtists));
-  localStorage.setItem("last_generated", now.toString());
-  return now;
-};
-
-export const clearCachedData = () => {
-  localStorage.removeItem("last_generated");
-  localStorage.removeItem("music_vibe");
-  localStorage.removeItem("top_songs");
-  localStorage.removeItem("top_artists");
-};
