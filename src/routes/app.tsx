@@ -1,174 +1,144 @@
 import { Window } from "~/components/Window";
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { requestVibe } from "~/lib/ai";
-import { fetchAllMusicData, LastFmTrack, LastFmArtist } from "~/lib/api";
+import { fetchAllMusicData, type LastFmArtist, type LastFmTrack } from "~/lib/api";
+import { formatTime, handleAuthError, isAuthError } from "~/lib/utils";
+import { DEFAULT_RANGE, isRangeId, RANGES, rangeLabel, type RangeId } from "~/lib/ranges";
 import {
-  formatTime,
-  handleAuthError,
-  isAuthError,
-  getCachedData,
-  setCachedData,
-  clearCachedData,
-} from "~/lib/utils";
+  clearAnalysis,
+  COOLDOWN_MS,
+  getCachedAnalysis,
+  getHistory,
+  saveAnalysis,
+  type HistoryEntry,
+} from "~/lib/storage";
+
+const RANGE_KEY = "tb:range";
+
+const songArtist = (song: LastFmTrack): string =>
+  typeof song.artist === "string" ? song.artist : song.artist?.name || song.artist?.["#text"] || "";
 
 export default function App() {
+  const [range, setRange] = createSignal<RangeId>(DEFAULT_RANGE);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal(false);
-  const [musicVibe, setMusicVibe] = createSignal<string>("");
+  const [musicVibe, setMusicVibe] = createSignal("");
   const [vibeError, setVibeError] = createSignal<string | null>(null);
   const [topSongs, setTopSongs] = createSignal<LastFmTrack[]>([]);
   const [topArtists, setTopArtists] = createSignal<LastFmArtist[]>([]);
-  const [regenerateDisabled, setRegenerateDisabled] = createSignal(true);
-  const [regenerateText, setRegenerateText] = createSignal(
-    "🔄 Available in 24h"
-  );
-  const [loadingStatus, setLoadingStatus] =
-    createSignal<string>("Initializing...");
+  const [generatedAt, setGeneratedAt] = createSignal<number | null>(null);
+  const [now, setNow] = createSignal(Date.now());
+  const [history, setHistory] = createSignal<HistoryEntry[]>([]);
+  const [loadingStatus, setLoadingStatus] = createSignal("Initializing...");
+  let requestId = 0;
 
-  const errHandler = (error: any) => {
-    const errorMessage =
-      typeof error === "string"
-        ? error
-        : error.message || JSON.stringify(error) || "Unknown error";
+  const remaining = () => {
+    const at = generatedAt();
+    return at === null ? 0 : Math.max(0, COOLDOWN_MS - (now() - at));
+  };
+  const canRegenerate = () => vibeError() !== null || remaining() === 0;
+  const regenerateText = () =>
+    vibeError() !== null
+      ? "🔄 Try again"
+      : remaining() > 0
+        ? `🔄 Available in ${formatTime(remaining())}`
+        : "🔄 Regenerate Analysis";
 
-    if (isAuthError(errorMessage)) {
+  const fail = (err: unknown) => {
+    const message =
+      typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err) || "Unknown error";
+    if (isAuthError(message)) {
       handleAuthError();
       return;
     }
-
     setLoading(false);
-    setError(errorMessage);
+    setError(message);
+  };
+
+  const generate = async (r: RangeId) => {
+    const id = ++requestId;
+    setLoading(true);
+    setSuccess(false);
+    setError(null);
+    setVibeError(null);
+    try {
+      setLoadingStatus(`Fetching your top music for ${rangeLabel(r).toLowerCase()}...`);
+      const { musicData, topSongs: songs, topArtists: artists } = await fetchAllMusicData(r);
+      if (id !== requestId) return;
+      setTopSongs(songs);
+      setTopArtists(artists);
+
+      setLoadingStatus("AI is analyzing your music vibe...");
+      let vibe: string;
+      try {
+        vibe = await requestVibe(musicData, r);
+      } catch (aiError) {
+        if (id !== requestId) return;
+        // Keep the lists on screen and say exactly why the vibe is missing.
+        // Nothing is cached, so the user can retry right away.
+        setVibeError(aiError instanceof Error ? aiError.message : String(aiError));
+        setGeneratedAt(null);
+        setLoading(false);
+        setSuccess(true);
+        return;
+      }
+      if (id !== requestId) return;
+
+      const at = Date.now();
+      saveAnalysis(r, { vibe, topSongs: songs, topArtists: artists, generatedAt: at });
+      setMusicVibe(vibe);
+      setGeneratedAt(at);
+      setHistory(getHistory());
+      setLoading(false);
+      setSuccess(true);
+    } catch (err) {
+      if (id === requestId) fail(err);
+    }
+  };
+
+  const show = (r: RangeId) => {
+    const cached = getCachedAnalysis(r);
+    if (cached && Date.now() - cached.generatedAt < COOLDOWN_MS) {
+      requestId++;
+      setError(null);
+      setVibeError(null);
+      setMusicVibe(cached.vibe);
+      setTopSongs(cached.topSongs);
+      setTopArtists(cached.topArtists);
+      setGeneratedAt(cached.generatedAt);
+      setLoading(false);
+      setSuccess(true);
+      return;
+    }
+    void generate(r);
+  };
+
+  const selectRange = (r: RangeId) => {
+    if (r === range()) return;
+    setRange(r);
+    localStorage.setItem(RANGE_KEY, r);
+    show(r);
   };
 
   const handleRegenerate = () => {
-    clearCachedData();
-    location.reload();
+    clearAnalysis(range());
+    void generate(range());
   };
 
   onMount(() => {
-    console.log("onMount started");
-    const username = localStorage.getItem("username");
-    if (!username) {
+    if (!localStorage.getItem("username")) {
       location.href = "/";
       return;
     }
-
-    const lastGenerated = localStorage.getItem("last_generated");
-    const now = new Date().getTime();
-    const twentyFourHours = 24 * 60 * 60 * 1000;
-
-    let shouldFetchData = true;
-    let timeRemaining = 0;
-
-    if (lastGenerated) {
-      const timeDifference = now - parseInt(lastGenerated);
-      if (timeDifference < twentyFourHours) {
-        shouldFetchData = false;
-        timeRemaining = twentyFourHours - timeDifference;
-      }
-    }
-
-    console.log("shouldFetchData:", shouldFetchData);
-
-    if (shouldFetchData) {
-      // Handle async data fetching
-      (async () => {
-        try {
-          setLoadingStatus("Fetching your recent tracks...");
-          const {
-            musicData,
-            topSongs: songs,
-            topArtists: artists,
-          } = await fetchAllMusicData();
-
-          // Store the top songs and artists for display
-          setTopSongs(songs);
-          setTopArtists(artists);
-
-          setLoadingStatus("AI is analyzing your music vibe...");
-          let musicVibeResult: string;
-          try {
-            musicVibeResult = await requestVibe(musicData);
-          } catch (aiError) {
-            // Keep the lists on screen and say exactly why the vibe is missing.
-            // Nothing is cached, so the user can retry right away.
-            setVibeError(aiError instanceof Error ? aiError.message : String(aiError));
-            setLoading(false);
-            setSuccess(true);
-            setRegenerateDisabled(false);
-            setRegenerateText("🔄 Try again");
-            return;
-          }
-
-          setLoadingStatus("Saving your analysis...");
-          setCachedData(musicVibeResult, songs, artists);
-
-          setMusicVibe(musicVibeResult);
-          setLoading(false);
-          setSuccess(true);
-          console.log("Fresh data loaded, loading set to false");
-
-          setRegenerateDisabled(true);
-          setRegenerateText("🔄 Available in 24h");
-        } catch (error) {
-          errHandler(error);
-        }
-      })();
-    } else {
-      setLoadingStatus("Loading your saved analysis...");
-      console.log("Loading cached data...");
-
-      const {
-        vibe,
-        topSongs: savedTopSongs,
-        topArtists: savedTopArtists,
-      } = getCachedData();
-      console.log("savedVibe:", vibe);
-
-      if (vibe && savedTopSongs && savedTopArtists) {
-        setMusicVibe(vibe);
-        setTopSongs(JSON.parse(savedTopSongs));
-        setTopArtists(JSON.parse(savedTopArtists));
-        setLoading(false);
-        setSuccess(true);
-        console.log("Cached data loaded, loading set to false");
-
-        if (timeRemaining > 0) {
-          setRegenerateDisabled(true);
-          setRegenerateText(`🔄 Available in ${formatTime(timeRemaining)}`);
-
-          const updateCountdown = () => {
-            const currentTime = new Date().getTime();
-            const remaining =
-              twentyFourHours - (currentTime - parseInt(lastGenerated!));
-
-            if (remaining <= 0) {
-              setRegenerateDisabled(false);
-              setRegenerateText("🔄 Regenerate Analysis");
-            } else {
-              setRegenerateText(`🔄 Available in ${formatTime(remaining)}`);
-              setTimeout(updateCountdown, 60000);
-            }
-          };
-
-          setTimeout(updateCountdown, 60000);
-        }
-      } else {
-        console.log("No cached data found, clearing timestamp");
-        clearCachedData();
-        setLoading(false);
-        setError(
-          "Cached data is missing. Please refresh to regenerate your analysis."
-        );
-      }
-    }
-    console.log("onMount completed");
+    const saved = localStorage.getItem(RANGE_KEY);
+    const initial = isRangeId(saved) ? saved : DEFAULT_RANGE;
+    setRange(initial);
+    setHistory(getHistory());
+    show(initial);
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    onCleanup(() => clearInterval(timer));
   });
-
-  if (loading()) {
-    console.log("Rendering loading state, loading():", loading());
-  }
 
   return (
     <>
@@ -198,16 +168,27 @@ export default function App() {
         <Window>
           <h1>Your Music Vibe Analysis</h1>
 
+          <div class="range-picker" role="group" aria-label="Time range">
+            <For each={RANGES}>
+              {(r) => (
+                <button
+                  class="range-option"
+                  classList={{ active: range() === r.id }}
+                  aria-pressed={range() === r.id}
+                  onClick={() => selectRange(r.id)}
+                >
+                  {r.label}
+                </button>
+              )}
+            </For>
+          </div>
+
           <div class="music-analysis">
             <div class="vibe-section">
-              <h2>🎵 Your Vibe</h2>
+              <h2>🎵 Your Vibe ({rangeLabel(range())})</h2>
               <Show
                 when={!vibeError()}
-                fallback={
-                  <p class="music-vibe-text vibe-error">
-                    Couldn't generate your vibe: {vibeError()}
-                  </p>
-                }
+                fallback={<p class="music-vibe-text vibe-error">Couldn't generate your vibe: {vibeError()}</p>}
               >
                 <p class="music-vibe-text">{musicVibe()}</p>
               </Show>
@@ -215,49 +196,65 @@ export default function App() {
 
             <div class="music-lists">
               <div class="top-songs-section">
-                <h2>🔥 Top Songs (7 Days)</h2>
+                <h2>🔥 Top Songs ({rangeLabel(range())})</h2>
                 <ol class="music-list">
-                  {topSongs()
-                    .slice(0, 5)
-                    .map((song: any) => (
+                  <For each={topSongs().slice(0, 5)}>
+                    {(song) => (
                       <li class="music-item">
                         <span class="track-name">{song.name}</span>
-                        <span class="artist-name">
-                          {Array.isArray(song.artist)
-                            ? song.artist[0]["#text"]
-                            : song.artist?.name || song.artist}
-                        </span>
+                        <span class="artist-name">{songArtist(song)}</span>
                         <span class="play-count">{song.playcount} plays</span>
                       </li>
-                    ))}
+                    )}
+                  </For>
                 </ol>
               </div>
 
               <div class="top-artists-section">
-                <h2>🎤 Top Artists (7 Days)</h2>
+                <h2>🎤 Top Artists ({rangeLabel(range())})</h2>
                 <ol class="music-list">
-                  {topArtists()
-                    .slice(0, 5)
-                    .map((artist: any) => (
+                  <For each={topArtists().slice(0, 5)}>
+                    {(artist) => (
                       <li class="music-item">
                         <span class="artist-name">{artist.name}</span>
                         <span class="play-count">{artist.playcount} plays</span>
                       </li>
-                    ))}
+                    )}
+                  </For>
                 </ol>
               </div>
             </div>
           </div>
 
           <div class="button-container">
-            <button
-              class="button"
-              onClick={handleRegenerate}
-              disabled={regenerateDisabled()}
-            >
+            <button class="button" onClick={handleRegenerate} disabled={!canRegenerate()}>
               {regenerateText()}
             </button>
           </div>
+
+          <Show when={history().length > 0}>
+            <section class="vibe-history">
+              <h2>🗓️ Vibe History</h2>
+              <p class="vibe-history-note">Saved in this browser only.</p>
+              <ol class="vibe-history-list">
+                <For each={history()}>
+                  {(h) => (
+                    <li class="vibe-history-item">
+                      <time datetime={new Date(h.generatedAt).toISOString()}>
+                        {new Date(h.generatedAt).toLocaleDateString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </time>
+                      <span class="vibe-history-range">{rangeLabel(h.range)}</span>
+                      <span class="vibe-history-vibe">{h.vibe}</span>
+                    </li>
+                  )}
+                </For>
+              </ol>
+            </section>
+          </Show>
         </Window>
       </Show>
     </>

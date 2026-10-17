@@ -1,11 +1,13 @@
+import { DEFAULT_RANGE, rangeLabel, type RangeId } from "./ranges";
+
 /** Ask the server for a vibe. Throws with the server's message when the AI fails. */
-export const requestVibe = async (musicData: string[]): Promise<string> => {
+export const requestVibe = async (musicData: string[], range: RangeId = DEFAULT_RANGE): Promise<string> => {
   let response: Response;
   try {
     response = await fetch("/api/vibe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ musicData }),
+      body: JSON.stringify({ musicData, range }),
     });
   } catch {
     throw new Error("Couldn't reach the Tastebuds server to generate your vibe.");
@@ -17,8 +19,12 @@ export const requestVibe = async (musicData: string[]): Promise<string> => {
   return data.vibe;
 };
 
-export const generateMusicVibePrompt = (musicData: string[]): string => {
-  return `Analyze this Last.fm data and generate a witty one-liner about this user's music vibe with a rating out of 10. Focus heavily on RECENTLY PLAYED tracks:
+export const generateMusicVibePrompt = (musicData: string[], range: RangeId = DEFAULT_RANGE): string => {
+  const focus =
+    range === "7day"
+      ? "Focus heavily on RECENTLY PLAYED tracks:"
+      : `This covers their listening over ${rangeLabel(range) === "All time" ? "all time" : `the last ${rangeLabel(range)}`}. Focus on the TOP tracks, artists and albums:`;
+  return `Analyze this Last.fm data and generate a witty one-liner about this user's music vibe with a rating out of 10. ${focus}
 
 ${musicData.join("\n")}
 

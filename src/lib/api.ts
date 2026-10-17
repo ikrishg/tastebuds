@@ -11,6 +11,7 @@ import {
   type TopTagsResponse,
 } from "./types";
 import { handleApiError } from "./errors";
+import { DEFAULT_RANGE, type RangeId } from "./ranges";
 
 export type { LastFmTrack, LastFmArtist, LastFmAlbum, LastFmTag };
 
@@ -130,25 +131,18 @@ export const formatTag = (
   }`;
 };
 
-export const fetchAllMusicData = async () => {
+export const fetchAllMusicData = async (range: RangeId = DEFAULT_RANGE) => {
   try {
-    const recentTracks = await fetchLastFmData("user.getRecentTracks", {}, 50);
-    const topAlbums = await fetchLastFmData(
-      "user.getTopAlbums",
-      { period: "7day" },
-      10
-    );
-    const topArtists = await fetchLastFmData(
-      "user.getTopArtists",
-      { period: "7day" },
-      10
-    );
-    const topTags = await fetchLastFmData("user.getTopTags", {}, 10);
-    const topTracks = await fetchLastFmData(
-      "user.getTopTracks",
-      { period: "7day" },
-      15
-    );
+    const [recentTracks, topAlbums, topArtists, topTags, topTracks] = await Promise.all([
+      // Recent plays only describe the last few days, so they only feed the 7-day vibe.
+      range === "7day"
+        ? fetchLastFmData("user.getRecentTracks", {}, 50)
+        : Promise.resolve({ recenttracks: { track: [] as LastFmTrack[] } }),
+      fetchLastFmData("user.getTopAlbums", { period: range }, 10),
+      fetchLastFmData("user.getTopArtists", { period: range }, 10),
+      fetchLastFmData("user.getTopTags", {}, 10),
+      fetchLastFmData("user.getTopTracks", { period: range }, 15),
+    ]);
 
     return {
       musicData: [
@@ -158,6 +152,9 @@ export const fetchAllMusicData = async () => {
             index,
             `RECENTLY PLAYED, ${track.date?.["#text"] || ""}`
           )
+        ),
+        topTracks.toptracks.track.map((track, index) =>
+          formatTrack(track, index, "TOP TRACK")
         ),
         topAlbums.topalbums.album.map((album, index) =>
           formatAlbum(album, index, "TOP ALBUM")
