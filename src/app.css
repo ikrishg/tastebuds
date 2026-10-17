@@ -608,3 +608,7 @@ body {
 .vibe-history-range {
   opacity: 0.7;
 }
+
+.range-notice {
+  opacity: 0.85;
+}

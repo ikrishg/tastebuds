@@ -9,11 +9,21 @@ import {
   COOLDOWN_MS,
   getCachedAnalysis,
   getHistory,
+  migrateLegacyCache,
   saveAnalysis,
   type HistoryEntry,
 } from "~/lib/storage";
 
 const RANGE_KEY = "tb:range";
+
+interface Snapshot {
+  range: RangeId;
+  vibe: string;
+  vibeError: string | null;
+  topSongs: LastFmTrack[];
+  topArtists: LastFmArtist[];
+  generatedAt: number | null;
+}
 
 const songArtist = (song: LastFmTrack): string =>
   typeof song.artist === "string" ? song.artist : song.artist?.name || song.artist?.["#text"] || "";
@@ -30,8 +40,34 @@ export default function App() {
   const [generatedAt, setGeneratedAt] = createSignal<number | null>(null);
   const [now, setNow] = createSignal(Date.now());
   const [history, setHistory] = createSignal<HistoryEntry[]>([]);
+  const [notice, setNotice] = createSignal<string | null>(null);
   const [loadingStatus, setLoadingStatus] = createSignal("Initializing...");
   let requestId = 0;
+  // What the user was last looking at, so a failed range switch can go back to it.
+  let lastShown: Snapshot | null = null;
+
+  const snapshot = (): Snapshot => ({
+    range: range(),
+    vibe: musicVibe(),
+    vibeError: vibeError(),
+    topSongs: topSongs(),
+    topArtists: topArtists(),
+    generatedAt: generatedAt(),
+  });
+
+  const display = (snap: Snapshot) => {
+    setRange(snap.range);
+    localStorage.setItem(RANGE_KEY, snap.range);
+    setMusicVibe(snap.vibe);
+    setVibeError(snap.vibeError);
+    setTopSongs(snap.topSongs);
+    setTopArtists(snap.topArtists);
+    setGeneratedAt(snap.generatedAt);
+    setError(null);
+    setLoading(false);
+    setSuccess(true);
+    lastShown = snap;
+  };
 
   const remaining = () => {
     const at = generatedAt();
@@ -45,11 +81,17 @@ export default function App() {
         ? `🔄 Available in ${formatTime(remaining())}`
         : "🔄 Regenerate Analysis";
 
-  const fail = (err: unknown) => {
+  const fail = (err: unknown, r: RangeId) => {
     const message =
       typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err) || "Unknown error";
     if (isAuthError(message)) {
       handleAuthError();
+      return;
+    }
+    if (lastShown) {
+      // Go back to what was on screen and say why the new result didn't load.
+      display(lastShown);
+      setNotice(`Couldn't load ${rangeLabel(r).toLowerCase()}: ${message}`);
       return;
     }
     setLoading(false);
@@ -61,7 +103,7 @@ export default function App() {
     setLoading(true);
     setSuccess(false);
     setError(null);
-    setVibeError(null);
+    setNotice(null);
     try {
       setLoadingStatus(`Fetching your top music for ${rangeLabel(r).toLowerCase()}...`);
       const { musicData, topSongs: songs, topArtists: artists } = await fetchAllMusicData(r);
@@ -77,23 +119,27 @@ export default function App() {
         if (id !== requestId) return;
         // Keep the lists on screen and say exactly why the vibe is missing.
         // Nothing is cached, so the user can retry right away.
-        setVibeError(aiError instanceof Error ? aiError.message : String(aiError));
-        setGeneratedAt(null);
-        setLoading(false);
-        setSuccess(true);
+        display({
+          range: r,
+          vibe: "",
+          vibeError: aiError instanceof Error ? aiError.message : String(aiError),
+          topSongs: songs,
+          topArtists: artists,
+          generatedAt: null,
+        });
         return;
       }
       if (id !== requestId) return;
 
       const at = Date.now();
-      saveAnalysis(r, { vibe, topSongs: songs, topArtists: artists, generatedAt: at });
-      setMusicVibe(vibe);
-      setGeneratedAt(at);
+      const saved = saveAnalysis(r, { vibe, topSongs: songs, topArtists: artists, generatedAt: at });
+      display({ range: r, vibe, vibeError: null, topSongs: songs, topArtists: artists, generatedAt: at });
       setHistory(getHistory());
-      setLoading(false);
-      setSuccess(true);
+      if (!saved.cached || !saved.history) {
+        setNotice("Your browser storage is full, so this vibe wasn't saved to history.");
+      }
     } catch (err) {
-      if (id === requestId) fail(err);
+      if (id === requestId) fail(err, r);
     }
   };
 
@@ -101,21 +147,23 @@ export default function App() {
     const cached = getCachedAnalysis(r);
     if (cached && Date.now() - cached.generatedAt < COOLDOWN_MS) {
       requestId++;
-      setError(null);
-      setVibeError(null);
-      setMusicVibe(cached.vibe);
-      setTopSongs(cached.topSongs);
-      setTopArtists(cached.topArtists);
-      setGeneratedAt(cached.generatedAt);
-      setLoading(false);
-      setSuccess(true);
+      setNotice(null);
+      display({
+        range: r,
+        vibe: cached.vibe,
+        vibeError: null,
+        topSongs: cached.topSongs,
+        topArtists: cached.topArtists,
+        generatedAt: cached.generatedAt,
+      });
       return;
     }
     void generate(r);
   };
 
   const selectRange = (r: RangeId) => {
-    if (r === range()) return;
+    if (r === range() && !error()) return;
+    if (success()) lastShown = snapshot();
     setRange(r);
     localStorage.setItem(RANGE_KEY, r);
     show(r);
@@ -134,11 +182,29 @@ export default function App() {
     const saved = localStorage.getItem(RANGE_KEY);
     const initial = isRangeId(saved) ? saved : DEFAULT_RANGE;
     setRange(initial);
+    migrateLegacyCache(); // before reading history, so migrated entries show up
     setHistory(getHistory());
     show(initial);
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     onCleanup(() => clearInterval(timer));
   });
+
+  const picker = () => (
+    <div class="range-picker" role="group" aria-label="Time range">
+      <For each={RANGES}>
+        {(r) => (
+          <button
+            class="range-option"
+            classList={{ active: range() === r.id }}
+            aria-pressed={range() === r.id}
+            onClick={() => selectRange(r.id)}
+          >
+            {r.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
 
   return (
     <>
@@ -158,6 +224,8 @@ export default function App() {
             <h1 class="error-title">An error occurred during generation.</h1>
             <p>Please try again. Please report to Krish. Debug info:</p>
             <p class="error-debug">{error()}</p>
+            <p>Retry or pick another time range:</p>
+            {picker()}
             <button class="button" onClick={() => (location.href = "/")}>
               Restart
             </button>
@@ -168,20 +236,12 @@ export default function App() {
         <Window>
           <h1>Your Music Vibe Analysis</h1>
 
-          <div class="range-picker" role="group" aria-label="Time range">
-            <For each={RANGES}>
-              {(r) => (
-                <button
-                  class="range-option"
-                  classList={{ active: range() === r.id }}
-                  aria-pressed={range() === r.id}
-                  onClick={() => selectRange(r.id)}
-                >
-                  {r.label}
-                </button>
-              )}
-            </For>
-          </div>
+          {picker()}
+          <Show when={notice()}>
+            <p class="range-notice" role="status">
+              {notice()}
+            </p>
+          </Show>
 
           <div class="music-analysis">
             <div class="vibe-section">
