@@ -1,3 +1,5 @@
+import { completeInBrowser } from "./client-ai";
+import { generateComparePrompt } from "./ai";
 import { fetchLastFmData, type LastFmArtist, type LastFmTrack } from "./api";
 import type { RangeId } from "./ranges";
 
@@ -81,7 +83,7 @@ export const compareTastes = (mine: Taste, theirs: Taste): Compatibility => {
   };
 };
 
-/** Ask the server for a one-line verdict. Throws with the server's message on failure. */
+/** Generate a one-line verdict in the browser. Throws when every provider fails. */
 export const requestCompatibilityLine = async (input: {
   me: string;
   friend: string;
@@ -92,19 +94,6 @@ export const requestCompatibilityLine = async (input: {
   myTopArtists: string[];
   friendTopArtists: string[];
 }): Promise<string> => {
-  let response: Response;
-  try {
-    response = await fetch("/api/compare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-  } catch {
-    throw new Error("Couldn't reach the Tastebuds server.");
-  }
-  const data = (await response.json().catch(() => ({}))) as { line?: string; error?: string };
-  if (!response.ok || !data.line) {
-    throw new Error(data.error || `Compatibility line failed (HTTP ${response.status}).`);
-  }
-  return data.line;
+  const text = await completeInBrowser(generateComparePrompt(input));
+  return text.replace(/^["']|["']$/g, "");
 };

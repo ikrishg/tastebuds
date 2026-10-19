@@ -20,7 +20,7 @@ const RANGE_KEY = "tb:range";
 /** Remembering the range is a nicety: a full storage must never block showing results. */
 const rememberRange = (r: RangeId) => {
   try {
-    rememberRange(r);
+    localStorage.setItem(RANGE_KEY, r);
   } catch {
     // ignore
   }

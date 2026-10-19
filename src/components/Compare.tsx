@@ -22,7 +22,7 @@ export function Compare(props: { range: RangeId }) {
   const [result, setResult] = createSignal<Result | null>(null);
   let requestId = 0;
 
-  // Leaving the page invalidates pending work, so an abandoned comparison never reaches the AI.
+  // Leaving the page invalidates pending work, so an abandoned comparison never calls the browser AI.
   onCleanup(() => requestId++);
 
   // A comparison belongs to one range: clear it and drop any pending request when the range changes.
