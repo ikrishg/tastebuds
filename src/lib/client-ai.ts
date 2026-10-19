@@ -1,3 +1,7 @@
+const CREATE_TIMEOUT_READY_MS = 60_000;
+const CREATE_TIMEOUT_DOWNLOAD_MS = 5 * 60_000;
+const PROMPT_TIMEOUT_MS = 45_000;
+
 const textLanguages = () => [
   { type: "text" as const, languages: ["en"] },
 ];
@@ -8,6 +12,26 @@ export const extractAnswerText = (raw: string): string =>
 
 const chromeLanguageModel = (): LanguageModel | undefined =>
   typeof globalThis.LanguageModel !== "undefined" ? globalThis.LanguageModel : undefined;
+
+const timeoutMessage = (phase: "create" | "prompt", downloading: boolean): string => {
+  if (phase === "create") {
+    return downloading
+      ? "Chrome built-in AI timed out while downloading Gemini Nano. Check progress in chrome://on-device-internals, then try again."
+      : "Chrome built-in AI timed out while starting. Try again in a moment.";
+  }
+  return "Chrome built-in AI timed out generating your answer. Try again.";
+};
+
+const rethrowChromeError = (err: unknown, phase: "create" | "prompt", downloading: boolean): void => {
+  if (err instanceof Error && err.name === "TimeoutError") {
+    throw new Error(timeoutMessage(phase, downloading));
+  }
+  if (err instanceof Error && err.message.startsWith("Chrome built-in AI")) {
+    throw err;
+  }
+  const detail = err instanceof Error ? err.message : "request failed";
+  throw new Error(`Chrome built-in AI couldn't complete this (${detail}).`);
+};
 
 /**
  * Run a single user prompt with Chrome built-in AI only (Gemini Nano via the Prompt API).
@@ -33,20 +57,36 @@ export async function completeInBrowser(prompt: string): Promise<string> {
     );
   }
 
-  const session = await LanguageModelCtor.create(options);
+  const downloading = availability === "downloadable" || availability === "downloading";
+  const createTimeoutMs = downloading ? CREATE_TIMEOUT_DOWNLOAD_MS : CREATE_TIMEOUT_READY_MS;
+
+  let session: LanguageModelSession | undefined;
   try {
-    const response = await session.prompt(prompt);
+    session = await LanguageModelCtor.create({
+      ...options,
+      signal: AbortSignal.timeout(createTimeoutMs),
+    });
+  } catch (err) {
+    rethrowChromeError(err, "create", downloading);
+    throw err;
+  }
+
+  if (!session) {
+    throw new Error("Chrome built-in AI couldn't start a session. Try again.");
+  }
+
+  try {
+    const response = await session.prompt(prompt, {
+      signal: AbortSignal.timeout(PROMPT_TIMEOUT_MS),
+    });
     const text = extractAnswerText(response);
     if (!text) {
       throw new Error("Chrome built-in AI returned an empty answer. Try again.");
     }
     return text;
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("Chrome built-in AI")) {
-      throw err;
-    }
-    const detail = err instanceof Error ? err.message : "request failed";
-    throw new Error(`Chrome built-in AI couldn't complete this (${detail}).`);
+    rethrowChromeError(err, "prompt", downloading);
+    throw err;
   } finally {
     session.destroy();
   }
